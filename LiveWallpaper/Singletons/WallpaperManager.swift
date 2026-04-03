@@ -277,7 +277,87 @@ class WallpaperManager: ObservableObject {
         
         updateWallpaperVisibility()
         
+        // Extract first frame and set as macOS desktop wallpaper
+        extractAndSetFirstFrame(from: url, video: video)
+        
         player!.play()
+    }
+    
+    // MARK: - macOS Desktop Wallpaper Integration
+    
+    /// Extrahiert den ersten Frame und setzt ihn als Desktop Wallpaper
+    private func extractAndSetFirstFrame(from url: URL, video: Video) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let asset = AVAsset(url: url)
+            let imageGenerator = AVAssetImageGenerator(asset: asset)
+            imageGenerator.appliesPreferredTrackTransform = true
+            
+            do {
+                // Extrahiere Frame bei 0.1 Sekunden (nicht ganz am Anfang wegen Codec-Delays)
+                let cgImage = try imageGenerator.copyCGImage(at: CMTime(seconds: 0.1, preferredTimescale: 600), actualTime: nil)
+                let nsImage = NSImage(cgImage: cgImage, size: .zero)
+                
+                // Speichere die Thumbnail-Datei
+                if let thumbnailURL = self?.saveThumbnail(nsImage, for: video) {
+                    // Setze als Desktop Wallpaper
+                    DispatchQueue.main.async {
+                        self?.setDesktopWallpaper(imageURL: thumbnailURL)
+                    }
+                }
+            } catch {
+                print("❌ Fehler beim Extrahieren des Frames: \(error)")
+            }
+        }
+    }
+    
+    /// Speichert die Thumbnail-Datei in der App Support Directory
+    private func saveThumbnail(_ image: NSImage, for video: Video) -> URL? {
+        guard let appSupportURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            return nil
+        }
+        
+        let wallpaperFolder = appSupportURL.appendingPathComponent("com.wallpaper.livewallpaper", isDirectory: true)
+        
+        // Erstelle Ordner, falls nicht vorhanden
+        try? FileManager.default.createDirectory(at: wallpaperFolder, withIntermediateDirectories: true)
+        
+        // Generiere einen eindeutigen Namen basierend auf Video-URL
+        let fileName = "wallpaper_\(video.url.hashValue).png"
+        let fileURL = wallpaperFolder.appendingPathComponent(fileName)
+        
+        // Konvertiere NSImage zu PNG und speichere
+        if let tiffData = image.tiffRepresentation,
+           let bitmapImage = NSBitmapImageRep(data: tiffData),
+           let pngData = bitmapImage.representation(using: .png, properties: [:]) {
+            do {
+                try pngData.write(to: fileURL)
+                print("✅ Thumbnail gespeichert: \(fileURL.lastPathComponent)")
+                return fileURL
+            } catch {
+                print("❌ Fehler beim Speichern des Thumbnails: \(error)")
+                return nil
+            }
+        }
+        
+        return nil
+    }
+    
+    /// Setzt das Bild als macOS Desktop Wallpaper (alle Screens)
+    private func setDesktopWallpaper(imageURL: URL) {
+        let screens = NSScreen.screens
+        
+        for screen in screens {
+            do {
+                try NSWorkspace.shared.setDesktopImageURL(
+                    imageURL,
+                    for: screen,
+                    options: [:]
+                )
+                print("✅ Desktop Wallpaper gesetzt für: \(screen.localizedName)")
+            } catch {
+                print("❌ Fehler beim Setzen des Desktop Wallpapers: \(error)")
+            }
+        }
     }
     
     private func animateContentViewTransition(window: NSWindow?, newContentView: NSView) {
