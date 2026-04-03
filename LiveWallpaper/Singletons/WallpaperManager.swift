@@ -46,8 +46,86 @@ class WallpaperManager: ObservableObject {
         )
         
         startSpaceMonitoring()
+        startScreenChangeMonitoring()
         
     } // Singleton
+    
+    // MARK: - Screen Change Monitoring (Hot-Plug Support)
+    private func startScreenChangeMonitoring() {
+        Foundation.NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleScreensChanged),
+            name: NSApplication.didChangeScreenParametersNotification,
+            object: nil
+        )
+    }
+    
+    @objc private func handleScreensChanged() {
+        print("🖥️ Screen configuration changed - syncing wallpaper...")
+        
+        let currentScreens = Set(NSScreen.screens)
+        let managedScreens = Set(windows.keys)
+        
+        // Neue Screens hinzufügen
+        for screen in currentScreens {
+            if !managedScreens.contains(screen) {
+                print("✅ Neuer Monitor erkannt: \(screen.localizedName)")
+                addWallpaperWindow(for: screen)
+            }
+        }
+        
+        // Entfernte Screens bereinigen
+        for screen in managedScreens {
+            if !currentScreens.contains(screen) {
+                print("❌ Monitor entfernt: \(screen.localizedName)")
+                if let window = windows[screen] {
+                    window.close()
+                    windows.removeValue(forKey: screen)
+                }
+            }
+        }
+        
+        updateWallpaperVisibility()
+    }
+    
+    /// Adds a new wallpaper window for a specific screen (for hot-plug)
+    private func addWallpaperWindow(for screen: NSScreen) {
+        guard let config = currentVideoConfig else { return }
+        
+        let newWindow = NSWindow(
+            contentRect: screen.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        
+        newWindow.isOpaque = false
+        newWindow.backgroundColor = .clear
+        newWindow.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopWindow)))
+        
+        // Configure collection behavior based on desktop mode
+        switch config.desktopMode {
+        case .allSpaces:
+            newWindow.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
+        case .currentSpace:
+            newWindow.collectionBehavior = [.stationary, .ignoresCycle]
+        case .specificSpaces:
+            newWindow.collectionBehavior = [.stationary, .ignoresCycle]
+        }
+        
+        newWindow.ignoresMouseEvents = true
+        newWindow.makeKeyAndOrderFront(nil)
+        
+        // Add wallpaper content to new window
+        if let player = player {
+            let playerView = PlayerLayerView(player: player, video: config)
+            let hostView = NSHostingView(rootView: playerView)
+            newWindow.contentView = hostView
+        }
+        
+        windows[screen] = newWindow
+        print("✅ Wallpaper window erstellt für: \(screen.localizedName)")
+    }
     
     // MARK: - Space Monitoring for Wallpaper
     private func startSpaceMonitoring() {
@@ -351,6 +429,7 @@ class WallpaperManager: ObservableObject {
             window.close()
         }
         
+        Foundation.NotificationCenter.default.removeObserver(self)
         DistributedNotificationCenter.default().removeObserver(self)
     }
 }
