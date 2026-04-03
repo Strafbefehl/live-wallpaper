@@ -5,7 +5,8 @@ import AVKit
 class WallpaperManager: ObservableObject {
     static let shared = WallpaperManager()
     
-    private var windows: [NSScreen: NSWindow] = [:]  // Ein Fenster pro Screen
+    private var windows: [NSScreen: NSWindow] = [:]  // Ein Fenster pro Screen (Desktop)
+    private var lockScreenWindows: [NSScreen: NSWindow] = [:]  // Ein Fenster pro Screen (Lockscreen)
     @Published var player: AVQueuePlayer?
     private var looper: AVPlayerLooper?
     
@@ -13,6 +14,7 @@ class WallpaperManager: ObservableObject {
     private var didAutoPaused = false
     
     private var isPlayingBeforeSleep = false
+    private var isLockScreenActive = false
     
     // MARK: - Multi-Desktop Support
     private var currentSpaceIndex: Int = 0
@@ -47,8 +49,75 @@ class WallpaperManager: ObservableObject {
         
         startSpaceMonitoring()
         startScreenChangeMonitoring()
+        startLockScreenMonitoring()
         
     } // Singleton
+    
+    // MARK: - Lock Screen Monitoring
+    private func startLockScreenMonitoring() {
+        DistributedNotificationCenter.default().addObserver(
+            self,
+            selector: #selector(lockScreenActivated),
+            name: NSNotification.Name("com.apple.screenIsLocked"),
+            object: nil
+        )
+        
+        DistributedNotificationCenter.default().addObserver(
+            self,
+            selector: #selector(lockScreenDeactivated),
+            name: NSNotification.Name("com.apple.screenIsUnlocked"),
+            object: nil
+        )
+    }
+    
+    @objc private func lockScreenActivated() {
+        print("🔒 Sperrbildschirm aktiviert")
+        isLockScreenActive = true
+        
+        // Stelle sicher, dass Lock Screen Windows existieren
+        if lockScreenWindows.isEmpty && !windows.isEmpty {
+            print("⚠️ Lock Screen Windows nicht vorhanden, erstelle sie...")
+            for screen in NSScreen.screens {
+                if lockScreenWindows[screen] == nil {
+                    addLockScreenWindow(for: screen)
+                }
+            }
+        }
+        
+        showLockScreenWallpaper()
+    }
+    
+    @objc private func lockScreenDeactivated() {
+        print("🔓 Sperrbildschirm deaktiviert")
+        isLockScreenActive = false
+        hideLockScreenWallpaper()
+    }
+    
+    /// Zeigt das Wallpaper auf dem Sperrbildschirm
+    private func showLockScreenWallpaper() {
+        guard let config = currentVideoConfig, let player = player else {
+            print("❌ Keine Wallpaper Config oder Player für Lock Screen")
+            return
+        }
+        
+        for (_, window) in lockScreenWindows {
+            // Stelle sicher, dass das Fenster Content hat
+            if window.contentView == nil || window.contentView?.subviews.isEmpty ?? true {
+                let playerView = PlayerLayerView(player: player, video: config)
+                let hostView = NSHostingView(rootView: playerView)
+                window.contentView = hostView
+                print("📺 Lock Screen Content wurde aktualisiert")
+            }
+            window.orderFront(nil)
+        }
+    }
+    
+    /// Versteckt das Wallpaper vom Sperrbildschirm
+    private func hideLockScreenWallpaper() {
+        for (_, window) in lockScreenWindows {
+            window.orderOut(nil)
+        }
+    }
     
     // MARK: - Screen Change Monitoring (Hot-Plug Support)
     private func startScreenChangeMonitoring() {
@@ -65,12 +134,17 @@ class WallpaperManager: ObservableObject {
         
         let currentScreens = Set(NSScreen.screens)
         let managedScreens = Set(windows.keys)
+        let managedLockScreens = Set(lockScreenWindows.keys)
         
         // Neue Screens hinzufügen
         for screen in currentScreens {
             if !managedScreens.contains(screen) {
                 print("✅ Neuer Monitor erkannt: \(screen.localizedName)")
                 addWallpaperWindow(for: screen)
+            }
+            // Auch Lock Screen Fenster für neue Screens hinzufügen
+            if !managedLockScreens.contains(screen) {
+                addLockScreenWindow(for: screen)
             }
         }
         
@@ -81,6 +155,16 @@ class WallpaperManager: ObservableObject {
                 if let window = windows[screen] {
                     window.close()
                     windows.removeValue(forKey: screen)
+                }
+            }
+        }
+        
+        // Entfernte Lock Screen Screens bereinigen
+        for screen in managedLockScreens {
+            if !currentScreens.contains(screen) {
+                if let window = lockScreenWindows[screen] {
+                    window.close()
+                    lockScreenWindows.removeValue(forKey: screen)
                 }
             }
         }
@@ -125,6 +209,45 @@ class WallpaperManager: ObservableObject {
         
         windows[screen] = newWindow
         print("✅ Wallpaper window erstellt für: \(screen.localizedName)")
+    }
+    
+    /// Adds a new lock screen window for a specific screen
+    private func addLockScreenWindow(for screen: NSScreen) {
+        guard let config = currentVideoConfig else { return }
+        
+        let lockWindow = NSWindow(
+            contentRect: screen.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        
+        lockWindow.isOpaque = false
+        lockWindow.backgroundColor = .clear
+        // Lock screen window sollte über der normalen Lock Screen liegen
+        // Use a high window level to appear above lock screen
+        lockWindow.level = NSWindow.Level(rawValue: 1000)
+        
+        lockWindow.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
+        lockWindow.ignoresMouseEvents = true
+        
+        // Add wallpaper content to lock screen window
+        if let player = player {
+            let playerView = PlayerLayerView(player: player, video: config)
+            let hostView = NSHostingView(rootView: playerView)
+            lockWindow.contentView = hostView
+        }
+        
+        lockScreenWindows[screen] = lockWindow
+        
+        // Verstecke Lock Screen Fenster initial (wird beim Sperren gezeigt)
+        if !isLockScreenActive {
+            lockWindow.orderOut(nil)
+        } else {
+            lockWindow.orderFront(nil)
+        }
+        
+        print("✅ Lock Screen Wallpaper window erstellt für: \(screen.localizedName)")
     }
     
     // MARK: - Space Monitoring for Wallpaper
@@ -206,6 +329,12 @@ class WallpaperManager: ObservableObject {
         }
         windows.removeAll()
         
+        // Close existing lock screen windows
+        for (_, window) in lockScreenWindows {
+            window.close()
+        }
+        lockScreenWindows.removeAll()
+        
         // Create a window for each screen
         let allScreens = NSScreen.screens
         
@@ -232,11 +361,42 @@ class WallpaperManager: ObservableObject {
             }
             
             newWindow.ignoresMouseEvents = true
+            
+            // Add wallpaper content to desktop window
+            if let player = player {
+                let playerView = PlayerLayerView(player: player, video: video)
+                let hostView = NSHostingView(rootView: playerView)
+                newWindow.contentView = hostView
+            }
+            
             newWindow.makeKeyAndOrderFront(nil)
             
             windows[screen] = newWindow
             
             print("Created wallpaper window for screen: \(screen.localizedName) - Frame: \(screen.frame)")
+            
+            // Erstelle auch Lock Screen Fenster für jeden Screen
+            let lockWindow = NSWindow(
+                contentRect: screen.frame,
+                styleMask: [.borderless],
+                backing: .buffered,
+                defer: false
+            )
+            
+            lockWindow.isOpaque = false
+            lockWindow.backgroundColor = .clear
+            // Use a high window level to appear above lock screen
+            lockWindow.level = NSWindow.Level(rawValue: 1000)
+            lockWindow.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
+            lockWindow.ignoresMouseEvents = true
+            
+            // Erstelle Lock Screen Fenster OHNE Content (wird später in setWallpaperVideo hinzugefügt)
+            lockScreenWindows[screen] = lockWindow
+            
+            // Verstecke Lock Screen Fenster initial
+            lockWindow.orderOut(nil)
+            
+            print("Created lock screen wallpaper window for screen: \(screen.localizedName)")
         }
     }
     
@@ -268,8 +428,15 @@ class WallpaperManager: ObservableObject {
         player = AVQueuePlayer()
         looper = AVPlayerLooper(player: player!, templateItem: playerItem)
         
-        // Update content for each window
+        // Update content for each window (Desktop)
         for (_, window) in windows {
+            let playerView = PlayerLayerView(player: player!, video: video)
+            let hostView = NSHostingView(rootView: playerView)
+            animateContentViewTransition(window: window, newContentView: hostView)
+        }
+        
+        // Update content for each lock screen window
+        for (_, window) in lockScreenWindows {
             let playerView = PlayerLayerView(player: player!, video: video)
             let hostView = NSHostingView(rootView: playerView)
             animateContentViewTransition(window: window, newContentView: hostView)
