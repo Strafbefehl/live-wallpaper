@@ -28,8 +28,12 @@ struct Video: Codable, Equatable, Hashable {
     let thumbnail:String
     var attrs: VideoAttrs?
     
+    // MARK: - Desktop/Space Configuration
+    var desktopMode: DesktopSpaceMode = .allSpaces
+    var visibleSpaces: [Int] = []
+    
     enum CodingKeys: String, CodingKey {
-        case id, url, type, thumbnail, attrs
+        case id, url, type, thumbnail, attrs, desktopMode, visibleSpaces
     }
 
     init(from decoder: Decoder) throws {
@@ -42,6 +46,8 @@ struct Video: Codable, Equatable, Hashable {
         thumbnail = try container.decode(String.self, forKey: .thumbnail)
         
         attrs = try container.decodeIfPresent(VideoAttrs.self, forKey: .attrs)
+        desktopMode = try container.decodeIfPresent(DesktopSpaceMode.self, forKey: .desktopMode) ?? .allSpaces
+        visibleSpaces = try container.decodeIfPresent([Int].self, forKey: .visibleSpaces) ?? []
     }
     
     init(
@@ -49,13 +55,17 @@ struct Video: Codable, Equatable, Hashable {
         url: String,
         type: VideoType,
         thumbnail: String,
-        attrs: VideoAttrs? = nil
+        attrs: VideoAttrs? = nil,
+        desktopMode: DesktopSpaceMode = .allSpaces,
+        visibleSpaces: [Int] = []
     ) {
         self.id = id
         self.url = url
         self.type = type
         self.thumbnail = thumbnail
         self.attrs = attrs
+        self.desktopMode = desktopMode
+        self.visibleSpaces = visibleSpaces
     }
 }
 
@@ -92,6 +102,26 @@ class UserSetting: ObservableObject {
                 defaults.set(encoded, forKey: "sounds")
             }
             AudioMixer.shared.process(mixerEnabled: mixerEnabled, sounds: sounds)
+        }
+    }
+    
+    @Published var clocks: [ClockConfig] = [] {
+        didSet {
+            if let encoded = try? JSONEncoder().encode(clocks) {
+                defaults.set(encoded, forKey: "clocks")
+            }
+        }
+    }
+    
+    @Published var activeClock: ClockConfig? {
+        didSet {
+            if let clock = activeClock {
+                if let encoded = try? JSONEncoder().encode(clock) {
+                    defaults.set(encoded, forKey: "activeClock")
+                }
+            } else {
+                defaults.removeObject(forKey: "activeClock")
+            }
         }
     }
     
@@ -134,6 +164,8 @@ class UserSetting: ObservableObject {
         self.launchAtLogin = getlaunchAtLogin()
         self.doNotShowWindow = getdoNotShowWindow()
         self.powerSaver = getPowerSaver()
+        self.clocks = getClocks()
+        self.activeClock = getActiveClock()
         
         self.adaptiveMode = defaults.bool(forKey: "adaptiveMode")
         
@@ -162,9 +194,9 @@ class UserSetting: ObservableObject {
     }
     
     func setVideo(_ video: Video) {
+        self.video = video
         if let encoded = try? JSONEncoder().encode(video) {
             defaults.set(encoded, forKey: "video")
-            self.video = video
         }
         
         var recent = getRecent()
@@ -175,6 +207,14 @@ class UserSetting: ObservableObject {
                 self.recent = recent
             }
         }
+    }
+    
+    func updateVideo() {
+        // Update the current video configuration (for desktop mode changes)
+        if let encoded = try? JSONEncoder().encode(video) {
+            defaults.set(encoded, forKey: "video")
+        }
+        objectWillChange.send()
     }
     
     func deleteVideo(_ video: Video){
@@ -254,6 +294,54 @@ class UserSetting: ObservableObject {
         return sounds
     }
     
+    // MARK: - Clock Management
+    func addClock(_ clock: ClockConfig) {
+        var newClock = clock
+        newClock.createdAt = Date()
+        newClock.updatedAt = Date()
+        clocks.append(newClock)
+    }
     
+    func updateClock(_ clock: ClockConfig) {
+        if let index = clocks.firstIndex(where: { $0.id == clock.id }) {
+            var updatedClock = clock
+            updatedClock.createdAt = clocks[index].createdAt
+            updatedClock.updatedAt = Date()
+            clocks[index] = updatedClock
+        }
+    }
+    
+    func deleteClock(_ clockId: String) {
+        clocks.removeAll { $0.id == clockId }
+        if activeClock?.id == clockId {
+            activeClock = nil
+        }
+    }
+    
+    func getClock(by id: String) -> ClockConfig? {
+        return clocks.first { $0.id == id }
+    }
+    
+    func getClocks() -> [ClockConfig] {
+        if let savedData = defaults.data(forKey: "clocks"),
+           let clocks = try? JSONDecoder().decode([ClockConfig].self, from: savedData) {
+            return clocks
+        }
+        return []
+    }
+    
+    func getActiveClock() -> ClockConfig? {
+        if let savedData = defaults.data(forKey: "activeClock"),
+           let clock = try? JSONDecoder().decode(ClockConfig.self, from: savedData) {
+            return clock
+        }
+        return nil
+    }
+    
+    func setActiveClock(_ clock: ClockConfig?) {
+        activeClock = clock
+    }
+    
+
 
 }

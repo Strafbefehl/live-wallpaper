@@ -10,6 +10,7 @@ import SwiftUI
 struct LiveWallpaperApp: App {
     
     let userSetting = UserSetting.shared
+    let clockManager = ClockManager.shared
     
     
     var body: some Scene {
@@ -38,6 +39,12 @@ struct LiveWallpaperApp: App {
         print("applaunch \(userSetting.video)")
         WallpaperManager.shared.setWallpaperVideo(video: userSetting.video)
         
+        // Restore active clock if exists
+        if let activeClock = userSetting.activeClock, activeClock.isEnabled {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                ClockManager.shared.showClockWindow(with: activeClock)
+            }
+        }
     }
     
     

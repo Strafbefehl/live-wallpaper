@@ -19,4 +19,13 @@ extension View {
     func disabledStyle(_ isDisabled: Bool) -> some View {
         self.modifier(DisabledOpacityModifier(isDisabled: isDisabled))
     }
+    
+    func borderBottom(width: CGFloat = 1, color: Color = Color.gray) -> some View {
+        VStack(spacing: 0) {
+            self
+            Divider()
+                .frame(height: width)
+                .background(color)
+        }
+    }
 }

@@ -5,6 +5,7 @@ enum NavItem: String, CaseIterable {
     case localVideo = "Add Video"
     case recent = "Recents"
     case ambientMixer = "Ambient Sounds"
+    case clocks = "Desktop Clocks"
     case settings = "Settings"
 }
 
@@ -21,6 +22,8 @@ struct ContentView: View {
             AnyView(VideoDropView())
         } else if selectedItem == .ambientMixer {
             AnyView(ambientSounds)
+        } else if selectedItem == .clocks {
+            AnyView(ClockManagerView())
         } else {
             AnyView(SettingView())
         }

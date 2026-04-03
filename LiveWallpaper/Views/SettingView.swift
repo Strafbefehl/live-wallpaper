@@ -56,6 +56,86 @@ struct SettingView: View {
                     """)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 
+                Text("Wallpaper Desktop Configuration")
+                    .fontWeight(.bold)
+                    .frame(maxWidth:.infinity, alignment: .leading)
+                    .padding(.top, 20)
+                    .padding(.bottom, 10)
+                
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Show Wallpaper on Desktops")
+                        .font(.system(size: 14, weight: .semibold))
+                    
+                    Picker("Desktop Mode", selection: $userSetting.video.desktopMode) {
+                        ForEach(DesktopSpaceMode.allCases, id: \.self) { mode in
+                            Text(mode.description).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(height: 36)
+                    
+                    // Specific Spaces Selection (only show if specificSpaces mode)
+                    if userSetting.video.desktopMode == .specificSpaces {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Select Specific Desktops")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(.secondary)
+                            
+                            VStack(spacing: 8) {
+                                ForEach(0..<4, id: \.self) { index in
+                                    HStack(spacing: 10) {
+                                        Toggle(
+                                            isOn: .init(
+                                                get: { userSetting.video.visibleSpaces.contains(index) },
+                                                set: { isSelected in
+                                                    if isSelected {
+                                                        userSetting.video.visibleSpaces.append(index)
+                                                    } else {
+                                                        userSetting.video.visibleSpaces.removeAll { $0 == index }
+                                                    }
+                                                    userSetting.updateVideo()
+                                                }
+                                            )
+                                        ) {
+                                            HStack(spacing: 8) {
+                                                Image(systemName: "square.grid.2x2")
+                                                    .font(.system(size: 14, weight: .semibold))
+                                                Text("Desktop \(index + 1)")
+                                                    .font(.system(size: 13))
+                                            }
+                                        }
+                                        .toggleStyle(.checkbox)
+                                    }
+                                    .padding(8)
+                                    .background(Color(nsColor: .controlBackgroundColor))
+                                    .cornerRadius(6)
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Info text
+                    HStack(spacing: 8) {
+                        Image(systemName: "info.circle")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.blue)
+                        
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Desktop Modes:")
+                                .font(.system(size: 11, weight: .semibold))
+                            Text("All Spaces: Show on all desktops • Current Space: Show only on current desktop • Specific Spaces: Choose which desktops")
+                                .font(.system(size: 10))
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .padding(8)
+                    .background(Color.blue.opacity(0.1))
+                    .cornerRadius(6)
+                }
+                .padding(10)
+                .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+                .cornerRadius(8)
+                
                 Text("App Data")
                     .fontWeight(.bold)
                     .frame(maxWidth:.infinity, alignment: .leading)
