@@ -10,7 +10,7 @@ class CustomPlayerView: NSView {
     private let playerLayer = AVPlayerLayer()
     
     private var appearanceObserver: NSKeyValueObservation?
-    private var darkLayer = CALayer()
+    private var darkLayer: CALayer?
     
     let player:AVPlayer
     let video:Video
@@ -31,9 +31,7 @@ class CustomPlayerView: NSView {
         
         print(video.attrs)
         
-        darkLayer = createAdaptiveDarkModeOverlay(rect: playerLayer.bounds, characteristics: video.attrs)
-        playerLayer.addSublayer(darkLayer)
-
+        // Only create darkLayer if adaptiveMode is enabled
         updateOverlay()
 
         // KVO for appearance
@@ -57,26 +55,43 @@ class CustomPlayerView: NSView {
     }
 
     @objc func updateOverlay() {
-        
-        let showDarkLayer: Bool = {
+        let shouldShowDarkLayer: Bool = {
             guard UserSetting.shared.adaptiveMode else { return false }
-
             let isDark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
             return isDark
-            ? true: false
         }()
 
-        CATransaction.begin()
-        CATransaction.setAnimationDuration(0.3)
-        darkLayer.isHidden = !showDarkLayer
-        CATransaction.commit()
-
+        if shouldShowDarkLayer {
+            // Create darkLayer if it doesn't exist
+            if darkLayer == nil {
+                darkLayer = createAdaptiveDarkModeOverlay(rect: playerLayer.bounds, characteristics: video.attrs)
+                if let darkLayer = darkLayer {
+                    playerLayer.addSublayer(darkLayer)
+                }
+            }
+            // Show it
+            darkLayer?.isHidden = false
+        } else {
+            // Remove darkLayer if adaptiveMode is off
+            if let darkLayer = darkLayer {
+                CATransaction.begin()
+                CATransaction.setAnimationDuration(0.3)
+                darkLayer.opacity = 0
+                CATransaction.commit()
+                
+                // Remove after animation
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                    darkLayer.removeFromSuperlayer()
+                    self?.darkLayer = nil
+                }
+            }
+        }
     }
 
     override func layout() {
         super.layout()
         playerLayer.frame = bounds
-        darkLayer.frame = bounds
+        darkLayer?.frame = bounds
     }
 
     required init?(coder decoder: NSCoder) {
